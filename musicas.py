@@ -1039,15 +1039,12 @@ with st.sidebar:
         "### 💾 Onde salvar?"
     )
 
-    modo_padrao = 0 if os.name == "nt" else 1
-
     modo = st.radio(
         "Modo de salvamento",
         [
             "Windows / Local",
             "Online / Navegador",
         ],
-        index=modo_padrao,
         key="modo_execucao",
     )
 
