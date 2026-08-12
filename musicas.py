@@ -103,9 +103,6 @@ if "arquivos_baixados" not in st.session_state:
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
 
-if "pasta_windows" not in st.session_state:
-    st.session_state.pasta_windows = ""
-
 if "modo_execucao" not in st.session_state:
     st.session_state.modo_execucao = "Windows / Local"
 
@@ -341,41 +338,91 @@ def obter_executavel_ffmpeg():
 
 
 # ============================================================
-# ESCOLHER PASTA NO WINDOWS
+# JAVASCRIPT RUNTIME
 # ============================================================
 
-def escolher_pasta_windows():
+def obter_javascript_runtime():
     """
-    Abre a janela nativa do Windows para escolher
-    onde os MP3 serão salvos.
+    Procura Deno ou Node.js instalado no computador.
+
+    Deno é o runtime recomendado pelo yt-dlp para YouTube.
+    Node também é suportado.
     """
 
-    if os.name != "nt":
-        return None
+    # --------------------------------------------------------
+    # DENO
+    # --------------------------------------------------------
 
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
+    deno = shutil.which("deno")
 
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes("-topmost", True)
+    if deno:
+        return "deno", deno
 
-        pasta = filedialog.askdirectory(
-            title="Escolha a pasta onde os MP3 serão salvos"
-        )
+    caminhos_deno = [
+        Path(os.environ.get("USERPROFILE", "")) / ".deno" / "bin" / "deno.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "deno" / "deno.exe",
+        Path(os.environ.get("PROGRAMFILES", "")) / "deno" / "deno.exe",
+    ]
 
-        root.destroy()
+    for caminho in caminhos_deno:
+        if caminho.exists():
+            return "deno", str(caminho)
 
-        if pasta:
-            return pasta
+    # --------------------------------------------------------
+    # NODE
+    # --------------------------------------------------------
 
-    except Exception as erro:
-        st.error(
-            f"Não foi possível abrir o seletor de pasta: {erro}"
-        )
+    node = shutil.which("node")
 
-    return None
+    if node:
+        return "node", node
+
+    caminhos_node = [
+        Path(os.environ.get("PROGRAMFILES", "")) / "nodejs" / "node.exe",
+        Path(os.environ.get("PROGRAMFILES(X86)", "")) / "nodejs" / "node.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "nodejs" / "node.exe",
+    ]
+
+    for caminho in caminhos_node:
+        if caminho.exists():
+            return "node", str(caminho)
+
+    return None, None
+
+
+# ============================================================
+# PASTA AUTOMÁTICA
+# ============================================================
+
+def obter_pasta_download():
+    """
+    Define automaticamente a pasta de destino.
+
+    Windows:
+        C:\\Users\\USUARIO\\Downloads\\Musicas
+
+    Outros sistemas:
+        ~/Downloads/Musicas
+    """
+
+    home = Path.home()
+
+    downloads = home / "Downloads"
+
+    if not downloads.exists():
+        downloads = home / "downloads"
+
+    if not downloads.exists():
+        downloads = home
+
+    pasta = downloads / "Musicas"
+
+    pasta.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    return str(pasta)
 
 
 # ============================================================
@@ -437,6 +484,48 @@ def artista_corresponde(
 
 
 # ============================================================
+# CONFIGURAÇÕES YT-DLP
+# ============================================================
+
+def obter_opcoes_base():
+    """
+    Configurações comuns do yt-dlp.
+
+    O runtime JS é ativado somente se Deno ou Node
+    estiver instalado.
+    """
+
+    runtime, caminho_runtime = obter_javascript_runtime()
+
+    opcoes = {
+        "quiet": True,
+        "no_warnings": False,
+        "ignoreerrors": True,
+        "noplaylist": True,
+
+        "retries": 5,
+        "fragment_retries": 5,
+        "file_access_retries": 5,
+
+        "continuedl": True,
+
+        # Permite que o yt-dlp tente novamente em situações
+        # temporárias de rede.
+        "socket_timeout": 30,
+
+        # EJS pode buscar os scripts oficiais.
+        "remote_components": "ejs:github",
+    }
+
+    if runtime and caminho_runtime:
+        opcoes["js_runtimes"] = {
+            runtime: caminho_runtime
+        }
+
+    return opcoes, runtime, caminho_runtime
+
+
+# ============================================================
 # PESQUISA
 # ============================================================
 
@@ -445,13 +534,14 @@ def artista_corresponde(
     ttl=600,
 )
 def pesquisar_musicas(cantor):
-    opcoes = {
-        "quiet": True,
-        "no_warnings": True,
-        "extract_flat": True,
-        "skip_download": True,
-        "ignoreerrors": True,
-    }
+    opcoes, _, _ = obter_opcoes_base()
+
+    opcoes.update(
+        {
+            "extract_flat": True,
+            "skip_download": True,
+        }
+    )
 
     pesquisas = [
         f'"{cantor}"',
@@ -701,6 +791,10 @@ def baixar_musica(
         )
         return None
 
+    runtime, caminho_runtime = (
+        obter_javascript_runtime()
+    )
+
     def hook(d):
         if d.get("status") == "downloading":
             percentual = d.get(
@@ -740,35 +834,56 @@ def baixar_musica(
         f"{titulo_seguro}.%(ext)s",
     )
 
-    opcoes = {
-        "format": "bestaudio/best",
-        "outtmpl": modelo_saida,
-        "noplaylist": True,
-        "quiet": True,
-        "no_warnings": True,
+    opcoes, _, _ = obter_opcoes_base()
 
-        "ffmpeg_location": ffmpeg_exe,
+    opcoes.update(
+        {
+            "format": "bestaudio/best",
 
-        "retries": 5,
-        "fragment_retries": 5,
-        "file_access_retries": 5,
+            "outtmpl": modelo_saida,
 
-        "continuedl": True,
-        "nopart": False,
+            "noplaylist": True,
 
-        "progress_hooks": [hook],
+            "quiet": True,
 
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": bitrate,
-            }
-        ],
+            "no_warnings": False,
 
-        "keepvideo": False,
-        "restrictfilenames": False,
-    }
+            "ffmpeg_location": ffmpeg_exe,
+
+            "retries": 5,
+
+            "fragment_retries": 5,
+
+            "file_access_retries": 5,
+
+            "continuedl": True,
+
+            "nopart": False,
+
+            "progress_hooks": [hook],
+
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": bitrate,
+                }
+            ],
+
+            "keepvideo": False,
+
+            "restrictfilenames": False,
+        }
+    )
+
+    # --------------------------------------------------------
+    # JAVASCRIPT
+    # --------------------------------------------------------
+
+    if runtime and caminho_runtime:
+        opcoes["js_runtimes"] = {
+            runtime: caminho_runtime
+        }
 
     try:
         with yt_dlp.YoutubeDL(opcoes) as ydl:
@@ -919,60 +1034,20 @@ with st.sidebar:
 
     if modo == "Windows / Local":
 
-        st.info(
-            "📁 Os MP3 serão salvos diretamente "
-            "na pasta que você escolher."
+        pasta_automatica = obter_pasta_download()
+
+        st.success(
+            "📁 Salvamento automático ativado."
         )
 
-        if os.name == "nt":
+        st.code(
+            pasta_automatica
+        )
 
-            if st.button(
-                "📁 Escolher pasta",
-                use_container_width=True,
-            ):
-                pasta = escolher_pasta_windows()
-
-                if pasta:
-                    st.session_state.pasta_windows = pasta
-                    st.success(
-                        "Pasta selecionada!"
-                    )
-                    st.rerun()
-
-            if st.session_state.pasta_windows:
-
-                st.success(
-                    "📂 Pasta atual:"
-                )
-
-                st.code(
-                    st.session_state.pasta_windows
-                )
-
-                if st.button(
-                    "🔄 Alterar pasta",
-                    use_container_width=True,
-                ):
-                    pasta = escolher_pasta_windows()
-
-                    if pasta:
-                        st.session_state.pasta_windows = pasta
-                        st.rerun()
-
-            else:
-
-                st.warning(
-                    "⚠️ Escolha uma pasta antes "
-                    "de iniciar o download."
-                )
-
-        else:
-
-            st.warning(
-                "⚠️ O modo Windows/Local só "
-                "funciona quando o Streamlit "
-                "está rodando no Windows."
-            )
+        st.caption(
+            "Os MP3 serão salvos automaticamente "
+            "na pasta Downloads\\Musicas."
+        )
 
     else:
 
@@ -988,6 +1063,10 @@ with st.sidebar:
 
     st.divider()
 
+    # ========================================================
+    # FFMPEG
+    # ========================================================
+
     ffmpeg = obter_executavel_ffmpeg()
 
     if ffmpeg:
@@ -997,6 +1076,28 @@ with st.sidebar:
     else:
         st.error(
             "❌ FFmpeg não disponível"
+        )
+
+    # ========================================================
+    # JAVASCRIPT
+    # ========================================================
+
+    runtime, runtime_path = (
+        obter_javascript_runtime()
+    )
+
+    if runtime:
+        st.success(
+            f"✅ JavaScript: {runtime}"
+        )
+    else:
+        st.warning(
+            "⚠️ Deno/Node não encontrado."
+        )
+
+        st.caption(
+            "O yt-dlp pode ter limitações no "
+            "YouTube sem um runtime JavaScript."
         )
 
 
@@ -1249,57 +1350,8 @@ if musicas:
         )
 
         # ----------------------------------------------------
-        # AVISO DO MODO WINDOWS
+        # DEFINE PASTA
         # ----------------------------------------------------
-
-        if (
-            st.session_state.modo_execucao
-            == "Windows / Local"
-        ):
-
-            if os.name == "nt":
-
-                if not st.session_state.pasta_windows:
-
-                    st.warning(
-                        "📁 Primeiro escolha a pasta "
-                        "onde os MP3 serão salvos."
-                    )
-
-                    if st.button(
-                        "📁 ESCOLHER PASTA AGORA",
-                        type="primary",
-                        use_container_width=True,
-                    ):
-
-                        pasta = escolher_pasta_windows()
-
-                        if pasta:
-                            st.session_state.pasta_windows = pasta
-                            st.rerun()
-
-                else:
-
-                    st.success(
-                        "📂 Os arquivos serão salvos diretamente em:"
-                    )
-
-                    st.code(
-                        st.session_state.pasta_windows
-                    )
-
-            else:
-
-                st.warning(
-                    "O modo Windows/Local não está "
-                    "disponível neste ambiente."
-                )
-
-        # ----------------------------------------------------
-        # BOTÃO DE PROCESSAR
-        # ----------------------------------------------------
-
-        pode_baixar = True
 
         if (
             st.session_state.modo_execucao
@@ -1307,10 +1359,38 @@ if musicas:
         ):
 
             if os.name != "nt":
+
+                st.warning(
+                    "⚠️ O modo Windows / Local "
+                    "está selecionado, mas este "
+                    "ambiente não é Windows."
+                )
+
                 pode_baixar = False
 
-            if not st.session_state.pasta_windows:
-                pode_baixar = False
+            else:
+
+                pasta_destino = obter_pasta_download()
+
+                st.success(
+                    "📂 Os arquivos serão salvos automaticamente em:"
+                )
+
+                st.code(
+                    pasta_destino
+                )
+
+                pode_baixar = True
+
+        else:
+
+            pasta_destino = None
+
+            pode_baixar = True
+
+        # ----------------------------------------------------
+        # BOTÃO PROCESSAR
+        # ----------------------------------------------------
 
         if pode_baixar:
 
@@ -1323,6 +1403,10 @@ if musicas:
         else:
 
             baixar = False
+
+        # ----------------------------------------------------
+        # PROCESSAMENTO
+        # ----------------------------------------------------
 
         if baixar:
 
@@ -1339,36 +1423,25 @@ if musicas:
             falhas = []
 
             # =================================================
-            # DEFINE A PASTA DE TRABALHO
+            # PASTA DE TRABALHO
             # =================================================
+
+            pasta_trabalho = tempfile.mkdtemp(
+                prefix="music_downloader_"
+            )
 
             if (
                 st.session_state.modo_execucao
                 == "Windows / Local"
             ):
 
-                pasta_destino = (
-                    st.session_state.pasta_windows
-                )
-
-                os.makedirs(
-                    pasta_destino,
-                    exist_ok=True,
-                )
-
-                pasta_trabalho = tempfile.mkdtemp(
-                    prefix="music_downloader_"
-                )
+                pasta_download = pasta_destino
 
                 modo_local = True
 
             else:
 
-                pasta_destino = None
-
-                pasta_trabalho = tempfile.mkdtemp(
-                    prefix="music_downloader_"
-                )
+                pasta_download = pasta_trabalho
 
                 modo_local = False
 
@@ -1378,28 +1451,6 @@ if musicas:
                     musicas_selecionadas,
                     1,
                 ):
-
-                    # =========================================
-                    # NO WINDOWS:
-                    # baixa diretamente na pasta escolhida
-                    # =========================================
-
-                    if modo_local:
-
-                        pasta_download = (
-                            pasta_destino
-                        )
-
-                    # =========================================
-                    # ONLINE:
-                    # usa pasta temporária
-                    # =========================================
-
-                    else:
-
-                        pasta_download = (
-                            pasta_trabalho
-                        )
 
                     arquivo = baixar_musica(
                         musica=musica,
@@ -1427,46 +1478,30 @@ if musicas:
 
                 if sucessos:
 
-                    # =========================================
-                    # WINDOWS / LOCAL
-                    # =========================================
+                    st.session_state.arquivos_baixados = (
+                        sucessos
+                    )
 
-                    if modo_local:
-
-                        st.session_state.arquivos_baixados = (
-                            sucessos
-                        )
+                    with st.spinner(
+                        "📦 Preparando ZIP..."
+                    ):
 
                         st.session_state.zip_bytes = (
                             criar_zip(sucessos)
                         )
 
+                    if modo_local:
+
                         st.success(
                             f"✅ {len(sucessos)} música(s) "
-                            "salva(s) diretamente na pasta escolhida."
+                            "salva(s) com sucesso."
                         )
 
                         st.info(
                             f"📂 Pasta: {pasta_destino}"
                         )
 
-                    # =========================================
-                    # ONLINE
-                    # =========================================
-
                     else:
-
-                        st.session_state.arquivos_baixados = (
-                            sucessos
-                        )
-
-                        with st.spinner(
-                            "📦 Preparando ZIP..."
-                        ):
-
-                            st.session_state.zip_bytes = (
-                                criar_zip(sucessos)
-                            )
 
                         st.success(
                             f"✅ {len(sucessos)} música(s) "
@@ -1493,16 +1528,11 @@ if musicas:
 
             finally:
 
-                # ------------------------------------------------
-                # NÃO APAGAR A PASTA NO MODO ONLINE ANTES
-                # DE O STREAMLIT CONSEGUIR LER OS ARQUIVOS.
+                # No modo local os arquivos precisam permanecer.
                 #
-                # Ela ficará temporariamente disponível.
-                # ------------------------------------------------
-
-                if not modo_local:
-                    pass
-
+                # No modo online, o ZIP já foi colocado
+                # em memória antes de sair daqui.
+                pass
 
     else:
 
@@ -1535,7 +1565,7 @@ if arquivos_baixados:
 
         st.success(
             f"{len(arquivos_baixados)} arquivo(s) "
-            "foram salvos na pasta escolhida."
+            "foram salvos automaticamente."
         )
 
     else:
@@ -1564,7 +1594,7 @@ if arquivos_baixados:
         )
 
         # ----------------------------------------------------
-        # NO WINDOWS, O ZIP TAMBÉM É SALVO NA PASTA ESCOLHIDA
+        # WINDOWS
         # ----------------------------------------------------
 
         if (
@@ -1572,9 +1602,7 @@ if arquivos_baixados:
             == "Windows / Local"
         ):
 
-            pasta = (
-                st.session_state.pasta_windows
-            )
+            pasta = obter_pasta_download()
 
             caminho_zip = (
                 Path(pasta)
@@ -1595,8 +1623,7 @@ if arquivos_baixados:
             except Exception as erro:
 
                 st.warning(
-                    "Não foi possível salvar o ZIP "
-                    "na pasta escolhida."
+                    "Não foi possível salvar o ZIP."
                 )
 
                 st.code(
@@ -1604,7 +1631,7 @@ if arquivos_baixados:
                 )
 
         # ----------------------------------------------------
-        # ONLINE, MOSTRA BOTÃO DO NAVEGADOR
+        # ONLINE
         # ----------------------------------------------------
 
         else:
@@ -1649,7 +1676,7 @@ if arquivos_baixados:
             )
 
             st.caption(
-                "✅ Salvo na pasta escolhida."
+                "✅ Salvo automaticamente em Downloads\\Musicas."
             )
 
         # ----------------------------------------------------
