@@ -114,8 +114,6 @@ if "modo_execucao" not in st.session_state:
 # ============================================================
 
 PALAVRAS_EVITAR = [
-    "live",
-    "ao vivo",
     "cover",
     "karaoke",
     "karaokê",
@@ -133,14 +131,8 @@ PALAVRAS_EVITAR = [
     "8d audio",
     "dj set",
     "mashup",
-    "mix",
-    "medley",
-    "playlist",
     "compilação",
     "compilacao",
-    "concerto",
-    "show",
-    "performance",
 ]
 
 
@@ -465,12 +457,6 @@ def artista_corresponde(
     if artista in titulo_n:
         return True, 100
 
-    if artista in uploader_n:
-        return True, 150
-
-    if artista in canal_n:
-        return True, 150
-
     correspondencias = sum(
         1
         for palavra in palavras
@@ -480,6 +466,9 @@ def artista_corresponde(
     if len(palavras) >= 2:
         if correspondencias >= len(palavras):
             return True, correspondencias * 30
+
+        if correspondencias >= 1:
+            return True, correspondencias * 15
 
         return False, 0
 
@@ -526,7 +515,6 @@ def obter_opcoes_base():
         "extractor_args": {
             "youtube": {
                 "player_client": ["android", "ios", "mweb", "web"],
-                "player_skip": ["js"],
             }
         },
 
@@ -567,11 +555,11 @@ def pesquisar_musicas(cantor):
     )
 
     pesquisas = [
+        f"{cantor}",
+        f"{cantor} músicas",
+        f"{cantor} melhores músicas",
+        f"{cantor} sucessos",
         f'"{cantor}"',
-        f'"{cantor}" músicas',
-        f'"{cantor}" melhores músicas',
-        f'"{cantor}" sucessos',
-        f'"{cantor}" canções',
     ]
 
     candidatos = []
