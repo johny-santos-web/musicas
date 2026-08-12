@@ -514,7 +514,7 @@ def obter_opcoes_base():
         "socket_timeout": 30,
 
         # EJS pode buscar os scripts oficiais.
-        "remote_components": "ejs:github",
+       "remote_components": ["ejs:github"],
     }
 
     if runtime and caminho_runtime:
