@@ -78,10 +78,6 @@ st.markdown(
         border-radius: 12px;
     }
 
-    div[data-testid="stSelectbox"] {
-        border-radius: 12px;
-    }
-
     </style>
     """,
     unsafe_allow_html=True,
@@ -99,7 +95,7 @@ if "cantor" not in st.session_state:
     st.session_state.cantor = ""
 
 if "selecionadas" not in st.session_state:
-    st.session_state.selecionadas = []
+    st.session_state.selecionadas = set()
 
 if "arquivos_baixados" not in st.session_state:
     st.session_state.arquivos_baixados = []
@@ -109,7 +105,7 @@ if "zip_bytes" not in st.session_state:
 
 
 # ============================================================
-# PALAVRAS / EXPRESSÕES A EVITAR
+# PALAVRAS QUE DEVEM SER EVITADAS
 # ============================================================
 
 PALAVRAS_EVITAR = [
@@ -140,9 +136,6 @@ PALAVRAS_EVITAR = [
     "concerto",
     "show",
     "performance",
-    "pseudo video",
-    "pseudo-video",
-    "pseudovideo",
 ]
 
 
@@ -151,6 +144,7 @@ PALAVRAS_EVITAR = [
 # ============================================================
 
 def normalizar_texto(texto):
+
     if not texto:
         return ""
 
@@ -192,16 +186,20 @@ def normalizar_texto(texto):
 
 
 # ============================================================
-# VERIFICA TÍTULO INDESEJADO
+# TÍTULO INDESEJADO
 # ============================================================
 
 def titulo_indesejado(titulo):
+
     texto = normalizar_texto(titulo)
 
     for palavra in PALAVRAS_EVITAR:
-        palavra_normalizada = normalizar_texto(palavra)
 
-        if palavra_normalizada and palavra_normalizada in texto:
+        palavra_normalizada = normalizar_texto(
+            palavra
+        )
+
+        if palavra_normalizada in texto:
             return True
 
     return False
@@ -212,20 +210,19 @@ def titulo_indesejado(titulo):
 # ============================================================
 
 def limpar_titulo_musica(titulo, cantor):
+
     resultado = str(titulo or "").strip()
     artista = str(cantor or "").strip()
 
-    # --------------------------------------------------------
-    # Remove artista do início
-    # --------------------------------------------------------
-
     if artista:
+
         padroes_artista = [
             rf"^{re.escape(artista)}\s*[-–—:]\s*",
             rf"^{re.escape(artista)}\s+",
         ]
 
         for padrao in padroes_artista:
+
             resultado = re.sub(
                 padrao,
                 "",
@@ -233,14 +230,9 @@ def limpar_titulo_musica(titulo, cantor):
                 flags=re.IGNORECASE,
             )
 
-    # --------------------------------------------------------
-    # Informações extras
-    # --------------------------------------------------------
-
     extras = [
         r"pseudo\s*video",
         r"pseudo\s*vídeo",
-        r"pseudo-video",
         r"official\s*video",
         r"official\s*audio",
         r"official",
@@ -259,9 +251,11 @@ def limpar_titulo_musica(titulo, cantor):
     mudou = True
 
     while mudou:
+
         antes = resultado
 
         for palavra in extras:
+
             resultado = re.sub(
                 rf"\(\s*{palavra}\s*\)",
                 "",
@@ -278,10 +272,6 @@ def limpar_titulo_musica(titulo, cantor):
 
         mudou = resultado != antes
 
-    # --------------------------------------------------------
-    # Remove parênteses e colchetes vazios
-    # --------------------------------------------------------
-
     resultado = re.sub(
         r"\(\s*\)",
         "",
@@ -294,19 +284,11 @@ def limpar_titulo_musica(titulo, cantor):
         resultado,
     )
 
-    # --------------------------------------------------------
-    # Espaços duplicados
-    # --------------------------------------------------------
-
     resultado = re.sub(
         r"\s+",
         " ",
         resultado,
     )
-
-    # --------------------------------------------------------
-    # Separadores sobrando
-    # --------------------------------------------------------
 
     resultado = resultado.strip(
         " -–—:[]()"
@@ -320,6 +302,7 @@ def limpar_titulo_musica(titulo, cantor):
 # ============================================================
 
 def formatar_visualizacoes(numero):
+
     if not numero:
         return "0"
 
@@ -345,12 +328,9 @@ def formatar_visualizacoes(numero):
 # ============================================================
 
 def obter_executavel_ffmpeg():
-    """
-    Primeiro tenta o FFmpeg fornecido pelo imageio-ffmpeg.
-    Depois procura no PATH do sistema.
-    """
 
     try:
+
         caminho = imageio_ffmpeg.get_ffmpeg_exe()
 
         if caminho and Path(caminho).exists():
@@ -368,7 +348,7 @@ def obter_executavel_ffmpeg():
 
 
 # ============================================================
-# VERIFICA ARTISTA
+# ARTISTA CORRESPONDE
 # ============================================================
 
 def artista_corresponde(
@@ -377,6 +357,7 @@ def artista_corresponde(
     uploader,
     canal,
 ):
+
     artista = normalizar_texto(cantor)
 
     titulo_n = normalizar_texto(titulo)
@@ -398,16 +379,13 @@ def artista_corresponde(
     if not palavras:
         return False, 0
 
-    # Nome completo no título
-    if artista and artista in titulo_n:
+    if artista in titulo_n:
         return True, 100
 
-    # Nome completo no uploader
-    if artista and artista in uploader_n:
+    if artista in uploader_n:
         return True, 150
 
-    # Nome completo no canal
-    if artista and artista in canal_n:
+    if artista in canal_n:
         return True, 150
 
     correspondencias = sum(
@@ -417,6 +395,7 @@ def artista_corresponde(
     )
 
     if len(palavras) >= 2:
+
         if correspondencias >= len(palavras):
             return True, correspondencias * 30
 
@@ -426,37 +405,6 @@ def artista_corresponde(
         return True, 20
 
     return False, 0
-
-
-# ============================================================
-# VERIFICA DISPONIBILIDADE DO VÍDEO
-# ============================================================
-
-def video_disponivel(url):
-    """
-    Faz uma consulta rápida para evitar colocar na lista
-    vídeos claramente indisponíveis.
-    """
-
-    opcoes = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-        "ignoreerrors": False,
-        "extract_flat": True,
-    }
-
-    try:
-        with yt_dlp.YoutubeDL(opcoes) as ydl:
-            info = ydl.extract_info(
-                url,
-                download=False,
-            )
-
-        return bool(info)
-
-    except Exception:
-        return False
 
 
 # ============================================================
@@ -487,13 +435,10 @@ def pesquisar_musicas(cantor):
 
     candidatos = []
 
-    # --------------------------------------------------------
-    # Executa pesquisas
-    # --------------------------------------------------------
-
     for consulta in pesquisas:
 
         try:
+
             with yt_dlp.YoutubeDL(opcoes) as ydl:
 
                 resultado = ydl.extract_info(
@@ -510,6 +455,7 @@ def pesquisar_musicas(cantor):
             )
 
             for video in videos:
+
                 if video:
                     candidatos.append(video)
 
@@ -519,16 +465,14 @@ def pesquisar_musicas(cantor):
     if not candidatos:
         return []
 
-    cantor_normalizado = normalizar_texto(cantor)
+    cantor_normalizado = normalizar_texto(
+        cantor
+    )
 
     musicas = []
 
     ids_vistos = set()
     nomes_vistos = set()
-
-    # --------------------------------------------------------
-    # Analisa candidatos
-    # --------------------------------------------------------
 
     for video in candidatos:
 
@@ -553,16 +497,8 @@ def pesquisar_musicas(cantor):
         if not titulo:
             continue
 
-        # ----------------------------------------------------
-        # Filtra versões indesejadas
-        # ----------------------------------------------------
-
         if titulo_indesejado(titulo):
             continue
-
-        # ----------------------------------------------------
-        # Informações
-        # ----------------------------------------------------
 
         uploader = (
             video.get("uploader")
@@ -585,23 +521,17 @@ def pesquisar_musicas(cantor):
             f"{artista_video}"
         )
 
-        # ----------------------------------------------------
-        # Confirma artista
-        # ----------------------------------------------------
-
-        corresponde, pontos_artista = artista_corresponde(
-            cantor,
-            titulo,
-            canal_completo,
-            canal_completo,
+        corresponde, pontos_artista = (
+            artista_corresponde(
+                cantor,
+                titulo,
+                canal_completo,
+                canal_completo,
+            )
         )
 
         if not corresponde:
             continue
-
-        # ----------------------------------------------------
-        # Limpa nome
-        # ----------------------------------------------------
 
         nome_musica = limpar_titulo_musica(
             titulo,
@@ -615,24 +545,11 @@ def pesquisar_musicas(cantor):
         if not nome_normalizado:
             continue
 
-        # Não aceita resultado que seja somente o artista
         if nome_normalizado == cantor_normalizado:
             continue
 
-        # Não aceita novamente conteúdo indesejado
-        if titulo_indesejado(nome_musica):
-            continue
-
-        # ----------------------------------------------------
-        # Deduplicação
-        # ----------------------------------------------------
-
         if nome_normalizado in nomes_vistos:
             continue
-
-        # ----------------------------------------------------
-        # URL
-        # ----------------------------------------------------
 
         url = video.get("webpage_url")
 
@@ -642,18 +559,10 @@ def pesquisar_musicas(cantor):
                 + video_id
             )
 
-        # ----------------------------------------------------
-        # Visualizações
-        # ----------------------------------------------------
-
         visualizacoes = (
             video.get("view_count")
             or 0
         )
-
-        # ----------------------------------------------------
-        # Pontuação
-        # ----------------------------------------------------
 
         pontuacao = pontos_artista
 
@@ -679,16 +588,14 @@ def pesquisar_musicas(cantor):
             pontuacao += 120
 
         try:
+
             pontuacao += min(
                 float(visualizacoes) / 1_000_000,
                 50,
             )
+
         except Exception:
             pass
-
-        # ----------------------------------------------------
-        # Guarda resultado
-        # ----------------------------------------------------
 
         musicas.append(
             {
@@ -708,20 +615,12 @@ def pesquisar_musicas(cantor):
             nome_normalizado
         )
 
-        # Evita lista excessivamente grande
-        if len(musicas) >= 20:
-            break
-
-    # --------------------------------------------------------
-    # Ordena
-    # --------------------------------------------------------
-
     musicas.sort(
         key=lambda item: item["pontuacao"],
         reverse=True,
     )
 
-    return musicas[:15]
+    return musicas[:10]
 
 
 # ============================================================
@@ -781,39 +680,15 @@ def baixar_musica(
     else:
         bitrate = "192"
 
-    # --------------------------------------------------------
-    # FFmpeg
-    # --------------------------------------------------------
-
     ffmpeg_exe = obter_executavel_ffmpeg()
 
     if not ffmpeg_exe:
+
         status.error(
-            "❌ FFmpeg não foi encontrado no servidor."
+            "❌ FFmpeg não foi encontrado."
         )
+
         return None
-
-    # --------------------------------------------------------
-    # Pasta
-    # --------------------------------------------------------
-
-    os.makedirs(
-        pasta,
-        exist_ok=True,
-    )
-
-    titulo_seguro = nome_arquivo_seguro(
-        musica["nome_musica"]
-    )
-
-    modelo_saida = os.path.join(
-        pasta,
-        f"{titulo_seguro}.%(ext)s",
-    )
-
-    # --------------------------------------------------------
-    # Hook
-    # --------------------------------------------------------
 
     def hook(d):
 
@@ -843,49 +718,49 @@ def baixar_musica(
                 f"Convertendo para MP3..."
             )
 
-    # --------------------------------------------------------
-    # Opções yt-dlp
-    # --------------------------------------------------------
+    os.makedirs(
+        pasta,
+        exist_ok=True,
+    )
+
+    titulo_seguro = nome_arquivo_seguro(
+        musica["nome_musica"]
+    )
+
+    modelo_saida = os.path.join(
+        pasta,
+        f"{titulo_seguro}.%(ext)s",
+    )
 
     opcoes = {
-        "format": "bestaudio/best",
+    "format": "bestaudio/best",
+    "outtmpl": modelo_saida,
+    "noplaylist": True,
+    "quiet": True,
+    "no_warnings": True,
 
-        "outtmpl": modelo_saida,
+    "ffmpeg_location": ffmpeg_exe,
 
-        "noplaylist": True,
+    "retries": 5,
+    "fragment_retries": 5,
+    "file_access_retries": 5,
 
-        "quiet": True,
+    "continuedl": True,
+    "nopart": False,
 
-        "no_warnings": True,
+    "progress_hooks": [hook],
 
-        "ffmpeg_location": ffmpeg_exe,
+    "postprocessors": [
+        {
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": bitrate,
+        }
+    ],
 
-        "progress_hooks": [
-            hook
-        ],
-
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": bitrate,
-            }
-        ],
-
-        "keepvideo": False,
-
-        "restrictfilenames": False,
-
-        # Evita informações extras no nome
-        "windowsfilenames": True,
-
-        # Não tenta baixar playlist
-        "noplaylist": True,
-    }
-
-    # --------------------------------------------------------
-    # Download
-    # --------------------------------------------------------
+    "keepvideo": False,
+    "restrictfilenames": False,
+}
 
     try:
 
@@ -895,14 +770,9 @@ def baixar_musica(
                 [musica["url"]]
             )
 
-        arquivo_mp3 = (
-            Path(pasta)
-            / f"{titulo_seguro}.mp3"
-        )
-
-        # ----------------------------------------------------
-        # Caso o nome final seja diferente
-        # ----------------------------------------------------
+        arquivo_mp3 = Path(
+            pasta
+        ) / f"{titulo_seguro}.mp3"
 
         if not arquivo_mp3.exists():
 
@@ -917,23 +787,15 @@ def baixar_musica(
                     key=lambda p: p.stat().st_mtime,
                 )
 
-        # ----------------------------------------------------
-        # Não encontrou MP3
-        # ----------------------------------------------------
-
         if not arquivo_mp3.exists():
 
-            status.warning(
-                f"⚠️ {numero}/{total} — "
+            status.error(
+                f"❌ O MP3 de "
                 f"'{musica['nome_musica']}' "
-                f"não gerou um arquivo MP3."
+                f"não foi encontrado."
             )
 
             return None
-
-        # ----------------------------------------------------
-        # Sucesso
-        # ----------------------------------------------------
 
         progresso.progress(
             numero / total
@@ -948,35 +810,17 @@ def baixar_musica(
 
     except Exception as erro:
 
-        mensagem = str(erro)
+        status.error(
+            f"❌ Erro ao baixar "
+            f"'{musica['titulo']}'"
+        )
 
-        # Erros comuns de vídeo indisponível
-        if (
-            "Video unavailable" in mensagem
-            or "video is not available" in mensagem.lower()
-            or "This video is not available" in mensagem
-            or "Private video" in mensagem
-            or "has been removed" in mensagem
+        with st.expander(
+            "Ver detalhes do erro"
         ):
-
-            status.warning(
-                f"⚠️ {numero}/{total} — "
-                f"'{musica['nome_musica']}' "
-                f"está indisponível e foi ignorada."
+            st.code(
+                str(erro)
             )
-
-        else:
-
-            status.error(
-                f"❌ {numero}/{total} — "
-                f"Erro ao baixar "
-                f"'{musica['nome_musica']}'."
-            )
-
-            with st.expander(
-                "Ver detalhes do erro"
-            ):
-                st.code(mensagem)
 
         return None
 
@@ -995,41 +839,16 @@ def criar_zip(arquivos):
         compression=zipfile.ZIP_DEFLATED,
     ) as zip_file:
 
-        nomes_usados = set()
-
         for arquivo in arquivos:
 
             caminho = Path(arquivo)
 
-            if not caminho.exists():
-                continue
+            if caminho.exists():
 
-            nome = caminho.name
-
-            # Evita nomes duplicados no ZIP
-            if nome in nomes_usados:
-
-                contador = 2
-
-                stem = caminho.stem
-                extensao = caminho.suffix
-
-                while (
-                    f"{stem} ({contador}){extensao}"
-                    in nomes_usados
-                ):
-                    contador += 1
-
-                nome = (
-                    f"{stem} ({contador}){extensao}"
+                zip_file.write(
+                    caminho,
+                    arcname=caminho.name,
                 )
-
-            nomes_usados.add(nome)
-
-            zip_file.write(
-                caminho,
-                arcname=nome,
-            )
 
     memoria.seek(0)
 
@@ -1041,16 +860,14 @@ def criar_zip(arquivos):
 # ============================================================
 
 st.markdown(
-    '<h1 class="main-title">'
-    "🎵 Downloader de Música"
-    "</h1>",
+    '<h1 class="main-title">🎵 Downloader de Música</h1>',
     unsafe_allow_html=True,
 )
 
 st.markdown(
     '<p class="subtitle">'
-    "Encontre músicas e escolha exatamente quais deseja processar"
-    "</p>",
+    'Encontre músicas populares e salve o áudio em MP3'
+    '</p>',
     unsafe_allow_html=True,
 )
 
@@ -1064,9 +881,9 @@ with st.sidebar:
     st.header("⚙️ Configurações")
 
     quantidade = st.slider(
-        "Quantidade de resultados",
+        "Quantidade de músicas",
         min_value=1,
-        max_value=15,
+        max_value=10,
         value=10,
     )
 
@@ -1088,13 +905,13 @@ with st.sidebar:
     )
 
     st.write(
-        "As músicas são processadas "
+        "Os arquivos são processados "
         "temporariamente no servidor."
     )
 
     st.write(
-        "Depois você baixa os arquivos "
-        "diretamente pelo navegador."
+        "Você escolhe onde salvar "
+        "pelo navegador."
     )
 
     st.divider()
@@ -1132,7 +949,6 @@ with coluna_artista:
         "Nome do cantor",
         placeholder="Ex.: Nelson Gonçalves",
         label_visibility="collapsed",
-        value=st.session_state.cantor,
     )
 
 with coluna_pesquisar:
@@ -1145,7 +961,7 @@ with coluna_pesquisar:
 
 
 # ============================================================
-# EXECUTA PESQUISA
+# PESQUISAR
 # ============================================================
 
 if pesquisar:
@@ -1158,11 +974,13 @@ if pesquisar:
 
     else:
 
-        st.session_state.cantor = cantor.strip()
+        st.session_state.cantor = (
+            cantor.strip()
+        )
 
         st.session_state.musicas = []
 
-        st.session_state.selecionadas = []
+        st.session_state.selecionadas = set()
 
         st.session_state.arquivos_baixados = []
 
@@ -1179,7 +997,9 @@ if pesquisar:
                     cantor.strip()
                 )
 
-                st.session_state.musicas = resultados
+                st.session_state.musicas = (
+                    resultados
+                )
 
                 if not resultados:
 
@@ -1195,10 +1015,9 @@ if pesquisar:
                     "❌ Ocorreu um erro durante a pesquisa."
                 )
 
-                with st.expander(
-                    "Ver detalhes do erro"
-                ):
-                    st.code(str(erro))
+                st.code(
+                    str(erro)
+                )
 
 
 # ============================================================
@@ -1221,102 +1040,94 @@ if musicas:
     )
 
     st.caption(
-        "Selecione abaixo somente as músicas que deseja processar."
+        "Marque somente as músicas que deseja baixar."
     )
 
     # --------------------------------------------------------
-    # Quantidade exibida
+    # BOTÕES SELECIONAR / DESMARCAR
     # --------------------------------------------------------
 
-    musicas_exibidas = musicas[:quantidade]
+    col_sel, col_des = st.columns(2)
 
-    # --------------------------------------------------------
-    # Botões selecionar todos / limpar
-    # --------------------------------------------------------
+    with col_sel:
 
-    col_todos, col_nenhum = st.columns(2)
-
-    with col_todos:
-
-        selecionar_todos = st.button(
+        if st.button(
             "☑️ Selecionar todas",
             use_container_width=True,
-        )
+        ):
 
-    with col_nenhum:
+            st.session_state.selecionadas = {
+                musica["id"]
+                for musica in musicas[:quantidade]
+            }
 
-        limpar_selecao = st.button(
-            "⬜ Limpar seleção",
+            st.rerun()
+
+    with col_des:
+
+        if st.button(
+            "☐ Desmarcar todas",
             use_container_width=True,
-        )
+        ):
 
-    if selecionar_todos:
+            st.session_state.selecionadas = set()
 
-        st.session_state.selecionadas = [
-            musica["id"]
-            for musica in musicas_exibidas
-        ]
+            st.rerun()
 
-    if limpar_selecao:
-
-        st.session_state.selecionadas = []
+    st.divider()
 
     # --------------------------------------------------------
-    # Lista
+    # LISTA DE MÚSICAS
     # --------------------------------------------------------
-
-    ids_selecionados = set(
-        st.session_state.selecionadas
-    )
 
     for numero, musica in enumerate(
-        musicas_exibidas,
+        musicas[:quantidade],
         1,
     ):
 
-        video_id = musica["id"]
+        musica_id = musica["id"]
 
-        selecionada = video_id in ids_selecionados
+        if musica_id in st.session_state.selecionadas:
+            marcado = True
+        else:
+            marcado = False
 
-        coluna_check, coluna_info = st.columns(
-            [0.7, 7]
+        coluna_numero, coluna_info = st.columns(
+            [0.5, 7]
         )
 
-        with coluna_check:
+        with coluna_numero:
 
-            marcada = st.checkbox(
-                "",
-                value=selecionada,
-                key=f"selecionar_{video_id}",
-                label_visibility="collapsed",
-            )
-
-        # Atualiza estado
-        if marcada and video_id not in ids_selecionados:
-
-            st.session_state.selecionadas.append(
-                video_id
-            )
-
-        elif not marcada and video_id in ids_selecionados:
-
-            st.session_state.selecionadas.remove(
-                video_id
+            st.markdown(
+                f"### {numero:02d}"
             )
 
         with coluna_info:
 
-            with st.container(
-                border=True
-            ):
+            with st.container(border=True):
 
-                st.markdown(
-                    f"### {numero:02d} — 🎵 "
-                    f"{musica['nome_musica']}"
+                selecionada = st.checkbox(
+                    f"🎵 {musica['nome_musica']}",
+                    value=marcado,
+                    key=f"musica_{musica_id}",
                 )
 
-                visualizacoes = formatar_visualizacoes(
-                    musica["visualizacoes"]
+                if selecionada:
+
+                    st.session_state.selecionadas.add(
+                        musica_id
+                    )
+
+                else:
+
+                    st.session_state.selecionadas.discard(
+                        musica_id
+                    )
+
+                visualizacoes = (
+                    formatar_visualizacoes(
+                        musica["visualizacoes"]
+                    )
                 )
 
                 st.caption(
@@ -1334,52 +1145,42 @@ if musicas:
                         f"{musica['uploader']}"
                     )
 
-    # --------------------------------------------------------
-    # Seleção final
-    # --------------------------------------------------------
 
-    ids_selecionados = set(
-        st.session_state.selecionadas
-    )
+    # ========================================================
+    # RESUMO DA SELEÇÃO
+    # ========================================================
 
     musicas_selecionadas = [
         musica
-        for musica in musicas_exibidas
-        if musica["id"] in ids_selecionados
+        for musica in musicas[:quantidade]
+        if musica["id"]
+        in st.session_state.selecionadas
     ]
 
     st.divider()
 
-    st.subheader(
-        "⬇️ Download"
+    st.info(
+        f"🎵 {len(musicas_selecionadas)} "
+        f"música(s) selecionada(s) "
+        f"de {min(quantidade, len(musicas))}."
     )
 
-    if not musicas_selecionadas:
+    # ========================================================
+    # DOWNLOAD
+    # ========================================================
+
+    if musicas_selecionadas:
+
+        st.subheader(
+            "⬇️ Download"
+        )
 
         st.info(
-            "☝️ Selecione pelo menos uma música "
-            "na lista acima."
+            f"Qualidade selecionada: **{qualidade}**"
         )
-
-    else:
-
-        st.success(
-            f"🎵 {len(musicas_selecionadas)} "
-            f"música(s) selecionada(s)."
-        )
-
-        st.write(
-            "Selecionadas:"
-        )
-
-        for musica in musicas_selecionadas:
-
-            st.write(
-                f"• {musica['nome_musica']}"
-            )
 
         baixar = st.button(
-            "⬇️ PROCESSAR SELECIONADAS",
+            "⬇️ PROCESSAR MÚSICAS SELECIONADAS",
             type="primary",
             use_container_width=True,
         )
@@ -1395,22 +1196,13 @@ if musicas:
             status = st.empty()
 
             sucessos = []
-
             falhas = []
-
-            # ------------------------------------------------
-            # Diretório temporário
-            # ------------------------------------------------
 
             pasta_temporaria = tempfile.mkdtemp(
                 prefix="music_downloader_"
             )
 
             try:
-
-                # --------------------------------------------
-                # Download
-                # --------------------------------------------
 
                 for numero, musica in enumerate(
                     musicas_selecionadas,
@@ -1439,52 +1231,32 @@ if musicas:
                             musica
                         )
 
-                # --------------------------------------------
-                # Final
-                # --------------------------------------------
-
                 progresso.progress(1.0)
 
                 if sucessos:
 
+                    st.session_state.arquivos_baixados = (
+                        sucessos
+                    )
+
+                    with st.spinner(
+                        "📦 Preparando ZIP..."
+                    ):
+
+                        st.session_state.zip_bytes = (
+                            criar_zip(sucessos)
+                        )
+
                     st.success(
-                        f"🎵 {len(sucessos)} música(s) "
-                        "processada(s) com sucesso."
+                        f"✅ {len(sucessos)} música(s) "
+                        f"processada(s) com sucesso."
                     )
 
                 if falhas:
 
                     st.warning(
                         f"⚠️ {len(falhas)} música(s) "
-                        "não puderam ser processadas."
-                    )
-
-                # --------------------------------------------
-                # Guarda resultados
-                # --------------------------------------------
-
-                st.session_state.arquivos_baixados = (
-                    sucessos
-                )
-
-                st.session_state.zip_bytes = None
-
-                # --------------------------------------------
-                # Cria ZIP
-                # --------------------------------------------
-
-                if sucessos:
-
-                    with st.spinner(
-                        "📦 Preparando arquivo ZIP..."
-                    ):
-
-                        zip_bytes = criar_zip(
-                            sucessos
-                        )
-
-                    st.session_state.zip_bytes = (
-                        zip_bytes
+                        f"não puderam ser processadas."
                     )
 
             except Exception as erro:
@@ -1494,10 +1266,15 @@ if musicas:
                     "o processamento."
                 )
 
-                with st.expander(
-                    "Ver detalhes do erro"
-                ):
-                    st.code(str(erro))
+                st.code(
+                    str(erro)
+                )
+
+    else:
+
+        st.warning(
+            "☝️ Selecione pelo menos uma música."
+        )
 
 
 # ============================================================
@@ -1514,19 +1291,21 @@ if arquivos_baixados:
     st.divider()
 
     st.subheader(
-        "📥 Seus arquivos estão prontos"
+        "📥 Arquivos prontos"
     )
 
     st.success(
         f"{len(arquivos_baixados)} arquivo(s) "
-        "disponível(is) para baixar."
+        "pronto(s) para baixar."
     )
 
     # --------------------------------------------------------
     # ZIP
     # --------------------------------------------------------
 
-    zip_bytes = st.session_state.zip_bytes
+    zip_bytes = (
+        st.session_state.zip_bytes
+    )
 
     if zip_bytes:
 
@@ -1539,7 +1318,7 @@ if arquivos_baixados:
         )
 
         st.download_button(
-            label="📦 BAIXAR TODAS EM ZIP",
+            label="📦 BAIXAR TODAS AS SELECIONADAS EM ZIP",
             data=zip_bytes,
             file_name=nome_zip,
             mime="application/zip",
@@ -1548,7 +1327,7 @@ if arquivos_baixados:
         )
 
     # --------------------------------------------------------
-    # Downloads individuais
+    # INDIVIDUAIS
     # --------------------------------------------------------
 
     st.markdown(
@@ -1589,9 +1368,14 @@ if arquivos_baixados:
                 data=dados,
                 file_name=caminho.name,
                 mime="audio/mpeg",
-                key=f"download_{indice}_{caminho.name}",
+                key=f"download_individual_{indice}",
                 use_container_width=True,
             )
+
+    st.info(
+        "💡 O local onde o arquivo será salvo "
+        "é definido pelo seu navegador."
+    )
 
 
 # ============================================================
