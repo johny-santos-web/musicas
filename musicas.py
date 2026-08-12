@@ -103,6 +103,12 @@ if "arquivos_baixados" not in st.session_state:
 if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
 
+if "pasta_windows" not in st.session_state:
+    st.session_state.pasta_windows = ""
+
+if "modo_execucao" not in st.session_state:
+    st.session_state.modo_execucao = "Windows / Local"
+
 
 # ============================================================
 # PALAVRAS QUE DEVEM SER EVITADAS
@@ -144,7 +150,6 @@ PALAVRAS_EVITAR = [
 # ============================================================
 
 def normalizar_texto(texto):
-
     if not texto:
         return ""
 
@@ -190,14 +195,10 @@ def normalizar_texto(texto):
 # ============================================================
 
 def titulo_indesejado(titulo):
-
     texto = normalizar_texto(titulo)
 
     for palavra in PALAVRAS_EVITAR:
-
-        palavra_normalizada = normalizar_texto(
-            palavra
-        )
+        palavra_normalizada = normalizar_texto(palavra)
 
         if palavra_normalizada in texto:
             return True
@@ -206,23 +207,20 @@ def titulo_indesejado(titulo):
 
 
 # ============================================================
-# LIMPA TÍTULO
+# LIMPA TÍTULO DA MÚSICA
 # ============================================================
 
 def limpar_titulo_musica(titulo, cantor):
-
     resultado = str(titulo or "").strip()
     artista = str(cantor or "").strip()
 
     if artista:
-
         padroes_artista = [
             rf"^{re.escape(artista)}\s*[-–—:]\s*",
             rf"^{re.escape(artista)}\s+",
         ]
 
         for padrao in padroes_artista:
-
             resultado = re.sub(
                 padrao,
                 "",
@@ -251,11 +249,9 @@ def limpar_titulo_musica(titulo, cantor):
     mudou = True
 
     while mudou:
-
         antes = resultado
 
         for palavra in extras:
-
             resultado = re.sub(
                 rf"\(\s*{palavra}\s*\)",
                 "",
@@ -302,7 +298,6 @@ def limpar_titulo_musica(titulo, cantor):
 # ============================================================
 
 def formatar_visualizacoes(numero):
-
     if not numero:
         return "0"
 
@@ -328,9 +323,7 @@ def formatar_visualizacoes(numero):
 # ============================================================
 
 def obter_executavel_ffmpeg():
-
     try:
-
         caminho = imageio_ffmpeg.get_ffmpeg_exe()
 
         if caminho and Path(caminho).exists():
@@ -348,6 +341,44 @@ def obter_executavel_ffmpeg():
 
 
 # ============================================================
+# ESCOLHER PASTA NO WINDOWS
+# ============================================================
+
+def escolher_pasta_windows():
+    """
+    Abre a janela nativa do Windows para escolher
+    onde os MP3 serão salvos.
+    """
+
+    if os.name != "nt":
+        return None
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+
+        pasta = filedialog.askdirectory(
+            title="Escolha a pasta onde os MP3 serão salvos"
+        )
+
+        root.destroy()
+
+        if pasta:
+            return pasta
+
+    except Exception as erro:
+        st.error(
+            f"Não foi possível abrir o seletor de pasta: {erro}"
+        )
+
+    return None
+
+
+# ============================================================
 # ARTISTA CORRESPONDE
 # ============================================================
 
@@ -357,7 +388,6 @@ def artista_corresponde(
     uploader,
     canal,
 ):
-
     artista = normalizar_texto(cantor)
 
     titulo_n = normalizar_texto(titulo)
@@ -395,7 +425,6 @@ def artista_corresponde(
     )
 
     if len(palavras) >= 2:
-
         if correspondencias >= len(palavras):
             return True, correspondencias * 30
 
@@ -416,7 +445,6 @@ def artista_corresponde(
     ttl=600,
 )
 def pesquisar_musicas(cantor):
-
     opcoes = {
         "quiet": True,
         "no_warnings": True,
@@ -436,11 +464,8 @@ def pesquisar_musicas(cantor):
     candidatos = []
 
     for consulta in pesquisas:
-
         try:
-
             with yt_dlp.YoutubeDL(opcoes) as ydl:
-
                 resultado = ydl.extract_info(
                     f"ytsearch30:{consulta}",
                     download=False,
@@ -455,7 +480,6 @@ def pesquisar_musicas(cantor):
             )
 
             for video in videos:
-
                 if video:
                     candidatos.append(video)
 
@@ -465,9 +489,7 @@ def pesquisar_musicas(cantor):
     if not candidatos:
         return []
 
-    cantor_normalizado = normalizar_texto(
-        cantor
-    )
+    cantor_normalizado = normalizar_texto(cantor)
 
     musicas = []
 
@@ -475,7 +497,6 @@ def pesquisar_musicas(cantor):
     nomes_vistos = set()
 
     for video in candidatos:
-
         if not video:
             continue
 
@@ -588,12 +609,10 @@ def pesquisar_musicas(cantor):
             pontuacao += 120
 
         try:
-
             pontuacao += min(
                 float(visualizacoes) / 1_000_000,
                 50,
             )
-
         except Exception:
             pass
 
@@ -628,7 +647,6 @@ def pesquisar_musicas(cantor):
 # ============================================================
 
 def nome_arquivo_seguro(nome):
-
     nome = str(nome or "").strip()
 
     nome = re.sub(
@@ -664,36 +682,27 @@ def baixar_musica(
     progresso,
     status,
 ):
-
     if qualidade == "128 kbps":
         bitrate = "128"
-
     elif qualidade == "192 kbps":
         bitrate = "192"
-
     elif qualidade == "256 kbps":
         bitrate = "256"
-
     elif qualidade == "320 kbps":
         bitrate = "320"
-
     else:
         bitrate = "192"
 
     ffmpeg_exe = obter_executavel_ffmpeg()
 
     if not ffmpeg_exe:
-
         status.error(
             "❌ FFmpeg não foi encontrado."
         )
-
         return None
 
     def hook(d):
-
         if d.get("status") == "downloading":
-
             percentual = d.get(
                 "_percent_str",
                 "0%",
@@ -712,10 +721,9 @@ def baixar_musica(
             )
 
         elif d.get("status") == "finished":
-
             status.info(
                 f"🎧 {numero}/{total} — "
-                f"Convertendo para MP3..."
+                "Convertendo para MP3..."
             )
 
     os.makedirs(
@@ -733,68 +741,63 @@ def baixar_musica(
     )
 
     opcoes = {
-    "format": "bestaudio/best",
-    "outtmpl": modelo_saida,
-    "noplaylist": True,
-    "quiet": True,
-    "no_warnings": True,
+        "format": "bestaudio/best",
+        "outtmpl": modelo_saida,
+        "noplaylist": True,
+        "quiet": True,
+        "no_warnings": True,
 
-    "ffmpeg_location": ffmpeg_exe,
+        "ffmpeg_location": ffmpeg_exe,
 
-    "retries": 5,
-    "fragment_retries": 5,
-    "file_access_retries": 5,
+        "retries": 5,
+        "fragment_retries": 5,
+        "file_access_retries": 5,
 
-    "continuedl": True,
-    "nopart": False,
+        "continuedl": True,
+        "nopart": False,
 
-    "progress_hooks": [hook],
+        "progress_hooks": [hook],
 
-    "postprocessors": [
-        {
-            "key": "FFmpegExtractAudio",
-            "preferredcodec": "mp3",
-            "preferredquality": bitrate,
-        }
-    ],
+        "postprocessors": [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": bitrate,
+            }
+        ],
 
-    "keepvideo": False,
-    "restrictfilenames": False,
-}
+        "keepvideo": False,
+        "restrictfilenames": False,
+    }
 
     try:
-
         with yt_dlp.YoutubeDL(opcoes) as ydl:
-
             ydl.download(
                 [musica["url"]]
             )
 
-        arquivo_mp3 = Path(
-            pasta
-        ) / f"{titulo_seguro}.mp3"
+        arquivo_mp3 = (
+            Path(pasta)
+            / f"{titulo_seguro}.mp3"
+        )
 
         if not arquivo_mp3.exists():
-
             arquivos = list(
                 Path(pasta).glob("*.mp3")
             )
 
             if arquivos:
-
                 arquivo_mp3 = max(
                     arquivos,
                     key=lambda p: p.stat().st_mtime,
                 )
 
         if not arquivo_mp3.exists():
-
             status.error(
                 f"❌ O MP3 de "
                 f"'{musica['nome_musica']}' "
-                f"não foi encontrado."
+                "não foi encontrado."
             )
-
             return None
 
         progresso.progress(
@@ -809,7 +812,6 @@ def baixar_musica(
         return str(arquivo_mp3)
 
     except Exception as erro:
-
         status.error(
             f"❌ Erro ao baixar "
             f"'{musica['titulo']}'"
@@ -830,7 +832,6 @@ def baixar_musica(
 # ============================================================
 
 def criar_zip(arquivos):
-
     memoria = io.BytesIO()
 
     with zipfile.ZipFile(
@@ -840,11 +841,9 @@ def criar_zip(arquivos):
     ) as zip_file:
 
         for arquivo in arquivos:
-
             caminho = Path(arquivo)
 
             if caminho.exists():
-
                 zip_file.write(
                     caminho,
                     arcname=caminho.name,
@@ -866,8 +865,8 @@ st.markdown(
 
 st.markdown(
     '<p class="subtitle">'
-    'Encontre músicas populares e salve o áudio em MP3'
-    '</p>',
+    "Encontre músicas populares e salve o áudio em MP3"
+    "</p>",
     unsafe_allow_html=True,
 )
 
@@ -900,32 +899,102 @@ with st.sidebar:
 
     st.divider()
 
+    # ========================================================
+    # MODO DE SALVAMENTO
+    # ========================================================
+
     st.markdown(
-        "### ☁️ Modo online"
+        "### 💾 Onde salvar?"
     )
 
-    st.write(
-        "Os arquivos são processados "
-        "temporariamente no servidor."
+    modo = st.radio(
+        "Modo de salvamento",
+        [
+            "Windows / Local",
+            "Online / Navegador",
+        ],
+        index=0,
+        key="modo_execucao",
     )
 
-    st.write(
-        "Você escolhe onde salvar "
-        "pelo navegador."
-    )
+    if modo == "Windows / Local":
+
+        st.info(
+            "📁 Os MP3 serão salvos diretamente "
+            "na pasta que você escolher."
+        )
+
+        if os.name == "nt":
+
+            if st.button(
+                "📁 Escolher pasta",
+                use_container_width=True,
+            ):
+                pasta = escolher_pasta_windows()
+
+                if pasta:
+                    st.session_state.pasta_windows = pasta
+                    st.success(
+                        "Pasta selecionada!"
+                    )
+                    st.rerun()
+
+            if st.session_state.pasta_windows:
+
+                st.success(
+                    "📂 Pasta atual:"
+                )
+
+                st.code(
+                    st.session_state.pasta_windows
+                )
+
+                if st.button(
+                    "🔄 Alterar pasta",
+                    use_container_width=True,
+                ):
+                    pasta = escolher_pasta_windows()
+
+                    if pasta:
+                        st.session_state.pasta_windows = pasta
+                        st.rerun()
+
+            else:
+
+                st.warning(
+                    "⚠️ Escolha uma pasta antes "
+                    "de iniciar o download."
+                )
+
+        else:
+
+            st.warning(
+                "⚠️ O modo Windows/Local só "
+                "funciona quando o Streamlit "
+                "está rodando no Windows."
+            )
+
+    else:
+
+        st.info(
+            "☁️ Os arquivos serão processados "
+            "temporariamente no servidor."
+        )
+
+        st.caption(
+            "Depois do processamento, use os "
+            "botões de download do navegador."
+        )
 
     st.divider()
 
     ffmpeg = obter_executavel_ffmpeg()
 
     if ffmpeg:
-
         st.success(
             "✅ FFmpeg disponível"
         )
-
     else:
-
         st.error(
             "❌ FFmpeg não disponível"
         )
@@ -1087,10 +1156,10 @@ if musicas:
 
         musica_id = musica["id"]
 
-        if musica_id in st.session_state.selecionadas:
-            marcado = True
-        else:
-            marcado = False
+        marcado = (
+            musica_id
+            in st.session_state.selecionadas
+        )
 
         coluna_numero, coluna_info = st.columns(
             [0.5, 7]
@@ -1179,11 +1248,81 @@ if musicas:
             f"Qualidade selecionada: **{qualidade}**"
         )
 
-        baixar = st.button(
-            "⬇️ PROCESSAR MÚSICAS SELECIONADAS",
-            type="primary",
-            use_container_width=True,
-        )
+        # ----------------------------------------------------
+        # AVISO DO MODO WINDOWS
+        # ----------------------------------------------------
+
+        if (
+            st.session_state.modo_execucao
+            == "Windows / Local"
+        ):
+
+            if os.name == "nt":
+
+                if not st.session_state.pasta_windows:
+
+                    st.warning(
+                        "📁 Primeiro escolha a pasta "
+                        "onde os MP3 serão salvos."
+                    )
+
+                    if st.button(
+                        "📁 ESCOLHER PASTA AGORA",
+                        type="primary",
+                        use_container_width=True,
+                    ):
+
+                        pasta = escolher_pasta_windows()
+
+                        if pasta:
+                            st.session_state.pasta_windows = pasta
+                            st.rerun()
+
+                else:
+
+                    st.success(
+                        "📂 Os arquivos serão salvos diretamente em:"
+                    )
+
+                    st.code(
+                        st.session_state.pasta_windows
+                    )
+
+            else:
+
+                st.warning(
+                    "O modo Windows/Local não está "
+                    "disponível neste ambiente."
+                )
+
+        # ----------------------------------------------------
+        # BOTÃO DE PROCESSAR
+        # ----------------------------------------------------
+
+        pode_baixar = True
+
+        if (
+            st.session_state.modo_execucao
+            == "Windows / Local"
+        ):
+
+            if os.name != "nt":
+                pode_baixar = False
+
+            if not st.session_state.pasta_windows:
+                pode_baixar = False
+
+        if pode_baixar:
+
+            baixar = st.button(
+                "⬇️ PROCESSAR MÚSICAS SELECIONADAS",
+                type="primary",
+                use_container_width=True,
+            )
+
+        else:
+
+            baixar = False
 
         if baixar:
 
@@ -1196,11 +1335,42 @@ if musicas:
             status = st.empty()
 
             sucessos = []
+
             falhas = []
 
-            pasta_temporaria = tempfile.mkdtemp(
-                prefix="music_downloader_"
-            )
+            # =================================================
+            # DEFINE A PASTA DE TRABALHO
+            # =================================================
+
+            if (
+                st.session_state.modo_execucao
+                == "Windows / Local"
+            ):
+
+                pasta_destino = (
+                    st.session_state.pasta_windows
+                )
+
+                os.makedirs(
+                    pasta_destino,
+                    exist_ok=True,
+                )
+
+                pasta_trabalho = tempfile.mkdtemp(
+                    prefix="music_downloader_"
+                )
+
+                modo_local = True
+
+            else:
+
+                pasta_destino = None
+
+                pasta_trabalho = tempfile.mkdtemp(
+                    prefix="music_downloader_"
+                )
+
+                modo_local = False
 
             try:
 
@@ -1209,9 +1379,31 @@ if musicas:
                     1,
                 ):
 
+                    # =========================================
+                    # NO WINDOWS:
+                    # baixa diretamente na pasta escolhida
+                    # =========================================
+
+                    if modo_local:
+
+                        pasta_download = (
+                            pasta_destino
+                        )
+
+                    # =========================================
+                    # ONLINE:
+                    # usa pasta temporária
+                    # =========================================
+
+                    else:
+
+                        pasta_download = (
+                            pasta_trabalho
+                        )
+
                     arquivo = baixar_musica(
                         musica=musica,
-                        pasta=pasta_temporaria,
+                        pasta=pasta_download,
                         qualidade=qualidade,
                         numero=numero,
                         total=total,
@@ -1235,28 +1427,57 @@ if musicas:
 
                 if sucessos:
 
-                    st.session_state.arquivos_baixados = (
-                        sucessos
-                    )
+                    # =========================================
+                    # WINDOWS / LOCAL
+                    # =========================================
 
-                    with st.spinner(
-                        "📦 Preparando ZIP..."
-                    ):
+                    if modo_local:
+
+                        st.session_state.arquivos_baixados = (
+                            sucessos
+                        )
 
                         st.session_state.zip_bytes = (
                             criar_zip(sucessos)
                         )
 
-                    st.success(
-                        f"✅ {len(sucessos)} música(s) "
-                        f"processada(s) com sucesso."
-                    )
+                        st.success(
+                            f"✅ {len(sucessos)} música(s) "
+                            "salva(s) diretamente na pasta escolhida."
+                        )
+
+                        st.info(
+                            f"📂 Pasta: {pasta_destino}"
+                        )
+
+                    # =========================================
+                    # ONLINE
+                    # =========================================
+
+                    else:
+
+                        st.session_state.arquivos_baixados = (
+                            sucessos
+                        )
+
+                        with st.spinner(
+                            "📦 Preparando ZIP..."
+                        ):
+
+                            st.session_state.zip_bytes = (
+                                criar_zip(sucessos)
+                            )
+
+                        st.success(
+                            f"✅ {len(sucessos)} música(s) "
+                            "processada(s) com sucesso."
+                        )
 
                 if falhas:
 
                     st.warning(
                         f"⚠️ {len(falhas)} música(s) "
-                        f"não puderam ser processadas."
+                        "não puderam ser processadas."
                     )
 
             except Exception as erro:
@@ -1269,6 +1490,19 @@ if musicas:
                 st.code(
                     str(erro)
                 )
+
+            finally:
+
+                # ------------------------------------------------
+                # NÃO APAGAR A PASTA NO MODO ONLINE ANTES
+                # DE O STREAMLIT CONSEGUIR LER OS ARQUIVOS.
+                #
+                # Ela ficará temporariamente disponível.
+                # ------------------------------------------------
+
+                if not modo_local:
+                    pass
+
 
     else:
 
@@ -1294,10 +1528,22 @@ if arquivos_baixados:
         "📥 Arquivos prontos"
     )
 
-    st.success(
-        f"{len(arquivos_baixados)} arquivo(s) "
-        "pronto(s) para baixar."
-    )
+    if (
+        st.session_state.modo_execucao
+        == "Windows / Local"
+    ):
+
+        st.success(
+            f"{len(arquivos_baixados)} arquivo(s) "
+            "foram salvos na pasta escolhida."
+        )
+
+    else:
+
+        st.success(
+            f"{len(arquivos_baixados)} arquivo(s) "
+            "pronto(s) para baixar."
+        )
 
     # --------------------------------------------------------
     # ZIP
@@ -1317,21 +1563,67 @@ if arquivos_baixados:
             f"{nome_artista}_musicas.zip"
         )
 
-        st.download_button(
-            label="📦 BAIXAR TODAS AS SELECIONADAS EM ZIP",
-            data=zip_bytes,
-            file_name=nome_zip,
-            mime="application/zip",
-            type="primary",
-            use_container_width=True,
-        )
+        # ----------------------------------------------------
+        # NO WINDOWS, O ZIP TAMBÉM É SALVO NA PASTA ESCOLHIDA
+        # ----------------------------------------------------
+
+        if (
+            st.session_state.modo_execucao
+            == "Windows / Local"
+        ):
+
+            pasta = (
+                st.session_state.pasta_windows
+            )
+
+            caminho_zip = (
+                Path(pasta)
+                / nome_zip
+            )
+
+            try:
+
+                caminho_zip.write_bytes(
+                    zip_bytes
+                )
+
+                st.success(
+                    f"📦 ZIP salvo em:\n"
+                    f"{caminho_zip}"
+                )
+
+            except Exception as erro:
+
+                st.warning(
+                    "Não foi possível salvar o ZIP "
+                    "na pasta escolhida."
+                )
+
+                st.code(
+                    str(erro)
+                )
+
+        # ----------------------------------------------------
+        # ONLINE, MOSTRA BOTÃO DO NAVEGADOR
+        # ----------------------------------------------------
+
+        else:
+
+            st.download_button(
+                label="📦 BAIXAR TODAS AS SELECIONADAS EM ZIP",
+                data=zip_bytes,
+                file_name=nome_zip,
+                mime="application/zip",
+                type="primary",
+                use_container_width=True,
+            )
 
     # --------------------------------------------------------
     # INDIVIDUAIS
     # --------------------------------------------------------
 
     st.markdown(
-        "### 🎧 Baixar individualmente"
+        "### 🎧 Arquivos MP3"
     )
 
     for indice, arquivo in enumerate(
@@ -1343,39 +1635,68 @@ if arquivos_baixados:
         if not caminho.exists():
             continue
 
-        try:
+        # ----------------------------------------------------
+        # MODO WINDOWS
+        # ----------------------------------------------------
 
-            dados = caminho.read_bytes()
-
-        except Exception:
-
-            continue
-
-        col_nome, col_botao = st.columns(
-            [5, 2]
-        )
-
-        with col_nome:
+        if (
+            st.session_state.modo_execucao
+            == "Windows / Local"
+        ):
 
             st.write(
                 f"🎵 {caminho.name}"
             )
 
-        with col_botao:
-
-            st.download_button(
-                label="⬇️ Baixar",
-                data=dados,
-                file_name=caminho.name,
-                mime="audio/mpeg",
-                key=f"download_individual_{indice}",
-                use_container_width=True,
+            st.caption(
+                "✅ Salvo na pasta escolhida."
             )
 
-    st.info(
-        "💡 O local onde o arquivo será salvo "
-        "é definido pelo seu navegador."
-    )
+        # ----------------------------------------------------
+        # MODO ONLINE
+        # ----------------------------------------------------
+
+        else:
+
+            try:
+
+                dados = caminho.read_bytes()
+
+            except Exception:
+
+                continue
+
+            col_nome, col_botao = st.columns(
+                [5, 2]
+            )
+
+            with col_nome:
+
+                st.write(
+                    f"🎵 {caminho.name}"
+                )
+
+            with col_botao:
+
+                st.download_button(
+                    label="⬇️ Baixar",
+                    data=dados,
+                    file_name=caminho.name,
+                    mime="audio/mpeg",
+                    key=f"download_individual_{indice}",
+                    use_container_width=True,
+                )
+
+    if (
+        st.session_state.modo_execucao
+        == "Online / Navegador"
+    ):
+
+        st.info(
+            "💡 No modo online, o local onde o "
+            "arquivo será salvo é definido pelo "
+            "seu navegador."
+        )
 
 
 # ============================================================
