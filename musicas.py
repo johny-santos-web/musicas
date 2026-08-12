@@ -104,7 +104,9 @@ if "zip_bytes" not in st.session_state:
     st.session_state.zip_bytes = None
 
 if "modo_execucao" not in st.session_state:
-    st.session_state.modo_execucao = "Windows / Local"
+    st.session_state.modo_execucao = (
+        "Windows / Local" if os.name == "nt" else "Online / Navegador"
+    )
 
 
 # ============================================================
@@ -320,6 +322,11 @@ def formatar_visualizacoes(numero):
 # ============================================================
 
 def obter_executavel_ffmpeg():
+    caminho = shutil.which("ffmpeg")
+
+    if caminho:
+        return caminho
+
     try:
         caminho = imageio_ffmpeg.get_ffmpeg_exe()
 
@@ -328,11 +335,6 @@ def obter_executavel_ffmpeg():
 
     except Exception:
         pass
-
-    caminho = shutil.which("ffmpeg")
-
-    if caminho:
-        return caminho
 
     return None
 
@@ -350,6 +352,15 @@ def obter_javascript_runtime():
     """
 
     # --------------------------------------------------------
+    # NODE (Prioritário no Linux/Streamlit Cloud)
+    # --------------------------------------------------------
+
+    node = shutil.which("node")
+
+    if node:
+        return "node", node
+
+    # --------------------------------------------------------
     # DENO
     # --------------------------------------------------------
 
@@ -358,26 +369,9 @@ def obter_javascript_runtime():
     if deno:
         return "deno", deno
 
-    caminhos_deno = [
-        Path(os.environ.get("USERPROFILE", "")) / ".deno" / "bin" / "deno.exe",
-        Path(os.environ.get("LOCALAPPDATA", "")) / "deno" / "deno.exe",
-        Path(os.environ.get("PROGRAMFILES", "")) / "deno" / "deno.exe",
-    ]
-
-    for caminho in caminhos_deno:
-        if caminho.exists():
-            return "deno", str(caminho)
-
-    # --------------------------------------------------------
-    # NODE
-    # --------------------------------------------------------
-
-    node = shutil.which("node")
-
-    if node:
-        return "node", node
-
     caminhos_node = [
+        Path("/usr/bin/node"),
+        Path("/usr/local/bin/node"),
         Path(os.environ.get("PROGRAMFILES", "")) / "nodejs" / "node.exe",
         Path(os.environ.get("PROGRAMFILES(X86)", "")) / "nodejs" / "node.exe",
         Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "nodejs" / "node.exe",
@@ -386,6 +380,18 @@ def obter_javascript_runtime():
     for caminho in caminhos_node:
         if caminho.exists():
             return "node", str(caminho)
+
+    caminhos_deno = [
+        Path("/usr/bin/deno"),
+        Path("/usr/local/bin/deno"),
+        Path(os.environ.get("USERPROFILE", "")) / ".deno" / "bin" / "deno.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "deno" / "deno.exe",
+        Path(os.environ.get("PROGRAMFILES", "")) / "deno" / "deno.exe",
+    ]
+
+    for caminho in caminhos_deno:
+        if caminho.exists():
+            return "deno", str(caminho)
 
     return None, None
 
@@ -503,8 +509,8 @@ def obter_opcoes_base():
         "ignoreerrors": True,
         "noplaylist": True,
 
-        "retries": 5,
-        "fragment_retries": 5,
+        "retries": 10,
+        "fragment_retries": 10,
         "file_access_retries": 5,
 
         "continuedl": True,
@@ -514,7 +520,24 @@ def obter_opcoes_base():
         "socket_timeout": 30,
 
         # EJS pode buscar os scripts oficiais.
-       "remote_components": ["ejs:github"],
+        "remote_components": ["ejs:github"],
+
+        # Burlar bloqueio de IP de datacenters do YouTube (ex.: Streamlit Cloud/AWS)
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["android", "ios", "mweb", "web"],
+                "player_skip": ["js"],
+            }
+        },
+
+        "http_headers": {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/122.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        },
     }
 
     if runtime and caminho_runtime:
@@ -955,14 +978,20 @@ def criar_zip(arquivos):
         compression=zipfile.ZIP_DEFLATED,
     ) as zip_file:
 
-        for arquivo in arquivos:
-            caminho = Path(arquivo)
-
-            if caminho.exists():
-                zip_file.write(
-                    caminho,
-                    arcname=caminho.name,
+        for item in arquivos:
+            if isinstance(item, dict):
+                zip_file.writestr(
+                    item["nome"],
+                    item["bytes"],
                 )
+            else:
+                caminho = Path(item)
+
+                if caminho.exists():
+                    zip_file.write(
+                        caminho,
+                        arcname=caminho.name,
+                    )
 
     memoria.seek(0)
 
@@ -1022,13 +1051,15 @@ with st.sidebar:
         "### 💾 Onde salvar?"
     )
 
+    modo_padrao = 0 if os.name == "nt" else 1
+
     modo = st.radio(
         "Modo de salvamento",
         [
             "Windows / Local",
             "Online / Navegador",
         ],
-        index=0,
+        index=modo_padrao,
         key="modo_execucao",
     )
 
@@ -1478,8 +1509,18 @@ if musicas:
 
                 if sucessos:
 
+                    lista_arquivos = []
+                    for arq in sucessos:
+                        p_arq = Path(arq)
+                        if p_arq.exists():
+                            lista_arquivos.append({
+                                "nome": p_arq.name,
+                                "caminho": str(p_arq),
+                                "bytes": p_arq.read_bytes() if not modo_local else None,
+                            })
+
                     st.session_state.arquivos_baixados = (
-                        sucessos
+                        lista_arquivos
                     )
 
                     with st.spinner(
@@ -1487,7 +1528,7 @@ if musicas:
                     ):
 
                         st.session_state.zip_bytes = (
-                            criar_zip(sucessos)
+                            criar_zip(lista_arquivos)
                         )
 
                     if modo_local:
@@ -1653,14 +1694,25 @@ if arquivos_baixados:
         "### 🎧 Arquivos MP3"
     )
 
-    for indice, arquivo in enumerate(
+    for indice, item in enumerate(
         arquivos_baixados
     ):
 
-        caminho = Path(arquivo)
-
-        if not caminho.exists():
-            continue
+        if isinstance(item, dict):
+            nome_arquivo = item["nome"]
+            dados_mp3 = item.get("bytes")
+            if not dados_mp3 and item.get("caminho"):
+                p_path = Path(item["caminho"])
+                if p_path.exists():
+                    dados_mp3 = p_path.read_bytes()
+        else:
+            caminho = Path(item)
+            nome_arquivo = caminho.name
+            dados_mp3 = (
+                caminho.read_bytes()
+                if caminho.exists()
+                else None
+            )
 
         # ----------------------------------------------------
         # MODO WINDOWS
@@ -1672,7 +1724,7 @@ if arquivos_baixados:
         ):
 
             st.write(
-                f"🎵 {caminho.name}"
+                f"🎵 {nome_arquivo}"
             )
 
             st.caption(
@@ -1685,12 +1737,7 @@ if arquivos_baixados:
 
         else:
 
-            try:
-
-                dados = caminho.read_bytes()
-
-            except Exception:
-
+            if not dados_mp3:
                 continue
 
             col_nome, col_botao = st.columns(
@@ -1700,15 +1747,15 @@ if arquivos_baixados:
             with col_nome:
 
                 st.write(
-                    f"🎵 {caminho.name}"
+                    f"🎵 {nome_arquivo}"
                 )
 
             with col_botao:
 
                 st.download_button(
                     label="⬇️ Baixar",
-                    data=dados,
-                    file_name=caminho.name,
+                    data=dados_mp3,
+                    file_name=nome_arquivo,
                     mime="audio/mpeg",
                     key=f"download_individual_{indice}",
                     use_container_width=True,
