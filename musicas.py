@@ -2,6 +2,7 @@ import io
 import os
 import re
 import shutil
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
@@ -14,6 +15,9 @@ import yt_dlp
 # ============================================================
 # CONFIGURAÇÃO
 # ============================================================
+
+# Modo debug para Streamlit Cloud
+DEBUG_MODE = os.environ.get("DEBUG_MODE", "").lower() in ["true", "1", "yes"]
 
 st.set_page_config(
     page_title="Music Downloader",
@@ -484,48 +488,67 @@ def artista_corresponde(
 
 def obter_opcoes_base():
     """
-    Configurações comuns do yt-dlp.
+    Configurações comuns do yt-dlp com suporte otimizado para Streamlit Cloud.
 
-    O runtime JS é ativado somente se Deno ou Node
-    estiver instalado.
+    O runtime JS é ativado somente se Deno ou Node estiver instalado.
+    Inclui múltiplas estratégias de bypass para bloqueios do YouTube.
     """
 
     runtime, caminho_runtime = obter_javascript_runtime()
 
     opcoes = {
-        "quiet": True,
+        "quiet": False,  # Mostrar mais detalhes para diagnóstico
         "no_warnings": False,
         "ignoreerrors": True,
         "noplaylist": True,
 
-        "retries": 10,
-        "fragment_retries": 10,
-        "file_access_retries": 5,
+        "retries": 15,
+        "fragment_retries": 15,
+        "file_access_retries": 10,
 
         "continuedl": True,
 
-        # Permite que o yt-dlp tente novamente em situações
-        # temporárias de rede.
-        "socket_timeout": 30,
+        # Timeout mais agressivo para Streamlit Cloud
+        "socket_timeout": 45,
+        "connection_timeout": 45,
 
-        # EJS pode buscar os scripts oficiais.
+        # EJS pode buscar os scripts oficiais
         "remote_components": ["ejs:github"],
 
-        # Burlar bloqueio de IP de datacenters do YouTube (ex.: Streamlit Cloud/AWS)
+        # Múltiplas estratégias de bypass do YouTube
         "extractor_args": {
             "youtube": {
-                "player_client": ["android", "ios", "mweb", "web"],
+                "player_client": [
+                    "android",
+                    "ios",
+                    "mweb",
+                    "web",
+                    "tv_embedded",
+                    "web_embedded",
+                ],
+                "player_skip": ["js", "webpage"],
             }
         },
 
+        # User agents diversificados
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/122.0.0.0 Safari/537.36"
+                "Chrome/123.0.0.0 Safari/537.36"
             ),
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Encoding": "gzip, deflate",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
         },
+
+        # Opções adicionais para Streamlit Cloud
+        "prefer_insecure": True,
+        "youtube_include_dash_manifest": False,
+        "youtube_include_hls_manifest": False,
+        "proxy": os.environ.get("YT_DLP_PROXY", ""),
     }
 
     if runtime and caminho_runtime:
@@ -545,7 +568,7 @@ def obter_opcoes_base():
     ttl=600,
 )
 def pesquisar_musicas(cantor):
-    opcoes, _, _ = obter_opcoes_base()
+    opcoes, runtime, caminho_runtime = obter_opcoes_base()
 
     opcoes.update(
         {
@@ -554,17 +577,22 @@ def pesquisar_musicas(cantor):
         }
     )
 
+    # Estratégias múltiplas de busca
     pesquisas = [
         f"{cantor}",
+        f"{cantor} official",
+        f"{cantor} música",
         f"{cantor} músicas",
-        f"{cantor} melhores músicas",
+        f"{cantor} melhores",
         f"{cantor} sucessos",
         f'"{cantor}"',
+        f"{cantor} lyric",
+        f"{cantor} video",
     ]
 
     candidatos = []
 
-    for consulta in pesquisas:
+    for idx, consulta in enumerate(pesquisas, 1):
         try:
             with yt_dlp.YoutubeDL(opcoes) as ydl:
                 resultado = ydl.extract_info(
@@ -584,7 +612,7 @@ def pesquisar_musicas(cantor):
                 if video:
                     candidatos.append(video)
 
-        except Exception:
+        except Exception as erro:
             continue
 
     if not candidatos:
@@ -1011,6 +1039,29 @@ with st.sidebar:
 
     st.header("⚙️ Configurações")
 
+    # ========================================================
+    # DEBUG MODE
+    # ========================================================
+
+    if DEBUG_MODE:
+        with st.expander("🔧 Diagnóstico (Debug Mode)"):
+            st.write("**Sistema:**")
+            st.code(f"Python: {sys.version}\nSO: {sys.platform}")
+            
+            ffmpeg_info = obter_executavel_ffmpeg()
+            st.write("**FFmpeg:**")
+            st.code(f"{ffmpeg_info or 'Não encontrado'}")
+            
+            runtime, runtime_path = obter_javascript_runtime()
+            st.write("**JavaScript Runtime:**")
+            st.code(f"{runtime or 'Não encontrado'}\n{runtime_path or ''}")
+            
+            st.write("**Variáveis de Ambiente:**")
+            st.code(
+                f"DEBUG_MODE: {DEBUG_MODE}\n"
+                f"YT_DLP_PROXY: {os.environ.get('YT_DLP_PROXY', 'não definido')}"
+            )
+
     quantidade = st.slider(
         "Quantidade de músicas",
         min_value=1,
@@ -1179,6 +1230,9 @@ if pesquisar:
 
             try:
 
+                if DEBUG_MODE:
+                    st.info("🔧 Modo Debug ativado - veja os detalhes da busca abaixo")
+
                 resultados = pesquisar_musicas(
                     cantor.strip()
                 )
@@ -1192,7 +1246,11 @@ if pesquisar:
                     st.warning(
                         f"⚠️ Não encontrei músicas "
                         f"relacionadas claramente a "
-                        f"'{cantor.strip()}'."
+                        f"'{cantor.strip()}'.\n\n"
+                        "**Sugestões:**\n"
+                        "- Tente outro nome ou variação do artista\n"
+                        "- Verifique a ortografia\n"
+                        "- Tente um artista mais famoso"
                     )
 
             except Exception as erro:
@@ -1201,9 +1259,8 @@ if pesquisar:
                     "❌ Ocorreu um erro durante a pesquisa."
                 )
 
-                st.code(
-                    str(erro)
-                )
+                with st.expander("Ver detalhes do erro"):
+                    st.code(str(erro))
 
 
 # ============================================================
