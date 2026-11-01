@@ -351,10 +351,10 @@ def obter_javascript_runtime():
     # NODE (Prioritário no Linux/Streamlit Cloud)
     # --------------------------------------------------------
 
-    node = shutil.which("node")
+    node = shutil.which("node") or shutil.which("nodejs")
 
     if node:
-        return "node", node
+        return "node", str(node)
 
     # --------------------------------------------------------
     # DENO
@@ -363,10 +363,11 @@ def obter_javascript_runtime():
     deno = shutil.which("deno")
 
     if deno:
-        return "deno", deno
+        return "deno", str(deno)
 
     caminhos_node = [
         Path("/usr/bin/node"),
+        Path("/usr/bin/nodejs"),
         Path("/usr/local/bin/node"),
         Path(os.environ.get("PROGRAMFILES", "")) / "nodejs" / "node.exe",
         Path(os.environ.get("PROGRAMFILES(X86)", "")) / "nodejs" / "node.exe",
@@ -497,25 +498,22 @@ def obter_opcoes_base():
     runtime, caminho_runtime = obter_javascript_runtime()
 
     opcoes = {
-        "quiet": False,  # Mostrar mais detalhes para diagnóstico
+        "quiet": True,
         "no_warnings": False,
         "ignoreerrors": True,
         "noplaylist": True,
 
-        "retries": 15,
-        "fragment_retries": 15,
-        "file_access_retries": 10,
+        "retries": 10,
+        "fragment_retries": 10,
+        "file_access_retries": 5,
 
         "continuedl": True,
+        "socket_timeout": 30,
 
-        # Timeout mais agressivo para Streamlit Cloud
-        "socket_timeout": 45,
-        "connection_timeout": 45,
-
-        # EJS pode buscar os scripts oficiais
+        # EJS pode buscar os scripts oficiais do YouTube
         "remote_components": ["ejs:github"],
 
-        # Múltiplas estratégias de bypass do YouTube
+        # Clientes otimizados para YouTube
         "extractor_args": {
             "youtube": {
                 "player_client": [
@@ -523,14 +521,10 @@ def obter_opcoes_base():
                     "ios",
                     "mweb",
                     "web",
-                    "tv_embedded",
-                    "web_embedded",
                 ],
-                "player_skip": ["js", "webpage"],
             }
         },
 
-        # User agents diversificados
         "http_headers": {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -539,21 +533,20 @@ def obter_opcoes_base():
             ),
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Encoding": "gzip, deflate",
             "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
         },
-
-        # Opções adicionais para Streamlit Cloud
-        "prefer_insecure": True,
-        "youtube_include_dash_manifest": False,
-        "youtube_include_hls_manifest": False,
-        "proxy": os.environ.get("YT_DLP_PROXY", ""),
     }
 
-    if runtime and caminho_runtime:
+    proxy = os.environ.get("YT_DLP_PROXY")
+    if proxy and proxy.strip():
+        opcoes["proxy"] = proxy.strip()
+
+    if runtime:
+        config = {}
+        if caminho_runtime:
+            config["path"] = str(caminho_runtime)
         opcoes["js_runtimes"] = {
-            runtime: caminho_runtime
+            runtime: config
         }
 
     return opcoes, runtime, caminho_runtime
@@ -577,17 +570,12 @@ def pesquisar_musicas(cantor):
         }
     )
 
-    # Estratégias múltiplas de busca
+    # Estratégias concisas e rápidas de busca
     pesquisas = [
-        f"{cantor}",
-        f"{cantor} official",
-        f"{cantor} música",
         f"{cantor} músicas",
-        f"{cantor} melhores",
+        f"{cantor}",
         f"{cantor} sucessos",
         f'"{cantor}"',
-        f"{cantor} lyric",
-        f"{cantor} video",
     ]
 
     candidatos = []
@@ -596,7 +584,7 @@ def pesquisar_musicas(cantor):
         try:
             with yt_dlp.YoutubeDL(opcoes) as ydl:
                 resultado = ydl.extract_info(
-                    f"ytsearch30:{consulta}",
+                    f"ytsearch15:{consulta}",
                     download=False,
                 )
 
@@ -915,14 +903,7 @@ def baixar_musica(
         }
     )
 
-    # --------------------------------------------------------
-    # JAVASCRIPT
-    # --------------------------------------------------------
-
-    if runtime and caminho_runtime:
-        opcoes["js_runtimes"] = {
-            runtime: caminho_runtime
-        }
+    # JavaScript runtime já configurado adequadamente em obter_opcoes_base()
 
     try:
         with yt_dlp.YoutubeDL(opcoes) as ydl:
