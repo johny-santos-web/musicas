@@ -977,10 +977,17 @@ def criar_zip(arquivos):
 
         for item in arquivos:
             if isinstance(item, dict):
-                zip_file.writestr(
-                    item["nome"],
-                    item["bytes"],
-                )
+                caminho = Path(item.get("caminho", "")) if item.get("caminho") else None
+                if caminho and caminho.exists():
+                    zip_file.write(
+                        caminho,
+                        arcname=item["nome"],
+                    )
+                elif item.get("bytes") is not None:
+                    zip_file.writestr(
+                        item["nome"],
+                        item["bytes"],
+                    )
             else:
                 caminho = Path(item)
 
